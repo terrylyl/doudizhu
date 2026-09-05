@@ -3,7 +3,7 @@
    因此全部路径必须是相对路径，不能以 "/" 开头。
 
    改动页面后把 VERSION 加 1，用户下次打开即可拿到新版本。 */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `doudizhu-${VERSION}`;
 
 const PRECACHE = [

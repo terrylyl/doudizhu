@@ -152,6 +152,32 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
 .seat .bubble{left:9px}
 .seat.right .bubble{left:auto;right:9px}
 .seat.is-turn .bubble{border-color:var(--gold);color:var(--gold)}
+/* 台词气泡：和牌局信息区分开，否则分不清"三带对"和"炸！"是一类东西 */
+.seat .bubble.talk{
+  max-width:calc(100% - 18px);overflow:hidden;text-overflow:ellipsis;
+  border-color:rgba(255,212,107,.62);color:#fff3cf;
+  background:linear-gradient(180deg,#2a5d9e,#123f76);
+  animation:talkPop .22s ease;
+}
+@keyframes talkPop{
+  0%{transform:translateY(3px) scale(.9);opacity:0}
+  100%{transform:translateY(0) scale(1);opacity:1}
+}
+@media (prefers-reduced-motion:reduce){ .seat .bubble.talk{animation:none} }
+
+/* 菜单里的对手列表 */
+.opps{display:flex;flex-direction:column;gap:6px}
+.opps .opp{
+  display:flex;align-items:center;gap:9px;
+  padding:7px 9px;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.2);
+}
+.opps .opp .tag{
+  flex:0 0 auto;width:26px;height:26px;border-radius:9px;display:grid;place-items:center;
+  font-size:13px;font-weight:700;color:#08243f;
+  background:linear-gradient(180deg,#cfe9ff,#8fbde4);
+}
+.opps .opp .nm{font-size:13.5px;font-weight:600;white-space:nowrap}
+.opps .opp .ds{font-size:11.5px;color:var(--muted);flex:1;min-width:0;line-height:1.4}
 
 /* 牌桌 -------------------------------------------------------------------- */
 .table{
@@ -177,6 +203,9 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
   border:1px solid rgba(255,255,255,.16);border-radius:10px;
   background:rgba(0,0,0,.26);
 }
+/* 类选择器的 display 会盖过 hidden 属性自带的 display:none，
+   不写这条，记牌器关着的时候会留下一条空条 */
+.counter[hidden]{display:none}
 .counter .cc{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0}
 .counter .cc .r{font-size:9.5px;line-height:1;color:rgba(255,255,255,.62)}
 .counter .cc .n{font-size:12px;line-height:1.15;font-weight:700;color:var(--fg)}
@@ -399,7 +428,7 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
 
   <div class="seats">
     <div class="seat" id="seatLeft">
-      <div class="avatar">左</div>
+      <div class="avatar" id="leftAvatar">稳</div>
       <div class="who">
         <div class="nm" id="leftName">AI 左</div>
         <div class="ct">剩 <b id="leftCount">17</b> 张</div>
@@ -408,7 +437,7 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
       <div class="bubble" id="leftBubble">等待</div>
     </div>
     <div class="seat right" id="seatRight">
-      <div class="avatar">右</div>
+      <div class="avatar" id="rightAvatar">阴</div>
       <div class="who">
         <div class="nm" id="rightName">AI 右</div>
         <div class="ct">剩 <b id="rightCount">17</b> 张</div>
@@ -491,6 +520,11 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
         <option value="20">20 分</option>
         <option value="50">50 分</option>
       </select>
+    </div>
+    <div class="row" style="display:block">
+      <label style="display:block;margin-bottom:8px">对手</label>
+      <div class="opps" id="oppList"></div>
+      <button class="ghost" id="swapOppBtn" style="margin-top:8px">换一批对手</button>
     </div>
     <div class="row">
       <label for="counterToggle">记牌器</label>
@@ -660,7 +694,10 @@ let state = {
 
   /* 记牌器：花积分一次性解锁，之后可自由开关 */
   counterOn: false,
-  unlocked: { counter:false }
+  unlocked: { counter:false },
+
+  /* 两个 AI 座位的性格 key（见 PERSONAS）。跨局保持，菜单里可以换对手。 */
+  personas: [null, 'steady', 'sly']
 };
 
 /* 本局的公共倍数：叫分 × 2^(炸弹+火箭) × 地主反加倍。
@@ -749,24 +786,50 @@ function loadState(){
 
 /* 钱包：跨局累计，和牌局快照分开存 —— 中途退出、清掉牌局，积分也该留着 */
 function saveWallet(){
+  /* 坏掉的积分一旦写进去，下次 loadWallet 会判定非法并重置成 1000，
+     用户的累计就悄无声息地没了。宁可这次不存。 */
+  if(!state.points.every(Number.isFinite)){
+    console.warn('saveWallet: 积分异常，拒绝写入', state.points);
+    return;
+  }
   try{
     localStorage.setItem(WALLET_KEY, JSON.stringify({
       points: state.points, base: state.base,
-      unlocked: state.unlocked, counterOn: state.counterOn
+      unlocked: state.unlocked, counterOn: state.counterOn,
+      /* 对手跟着钱包一起存：积分是记在这两位身上的 */
+      personas: state.personas,
+      names: [state.players[1].name, state.players[2].name]
     }));
   }catch(e){}
 }
 function loadWallet(){
+  let gotOpponents = false;
   try{
     const s = JSON.parse(localStorage.getItem(WALLET_KEY) || 'null');
-    if(!s) return;
-    if(Array.isArray(s.points) && s.points.length === 3 && s.points.every(n=>typeof n === 'number' && isFinite(n))){
-      state.points = s.points;
+    if(s){
+      if(Array.isArray(s.points) && s.points.length === 3 && s.points.every(n=>typeof n === 'number' && isFinite(n))){
+        state.points = s.points;
+      }
+      if(typeof s.base === 'number' && s.base > 0) state.base = CONFIG.baseScore = s.base;
+      if(s.unlocked && typeof s.unlocked === 'object') state.unlocked.counter = !!s.unlocked.counter;
+      state.counterOn = !!s.counterOn && state.unlocked.counter;
+      /* 对手：性格 key 必须是认识的，名字必须非空，否则重新分配 */
+      const okPersonas = Array.isArray(s.personas) && [1,2].every(i=>PERSONAS[s.personas[i]]);
+      const okNames = Array.isArray(s.names) && s.names.length === 2 && s.names.every(n=>typeof n === 'string' && n);
+      if(okPersonas && okNames){
+        state.personas = s.personas;
+        state.players[1].name = s.names[0];
+        state.players[2].name = s.names[1];
+        gotOpponents = true;
+      }
     }
-    if(typeof s.base === 'number' && s.base > 0) state.base = CONFIG.baseScore = s.base;
-    if(s.unlocked && typeof s.unlocked === 'object') state.unlocked.counter = !!s.unlocked.counter;
-    state.counterOn = !!s.counterOn && state.unlocked.counter;
-  }catch(e){}
+  }catch(e){ /* 存档坏了就当没有 */ }
+  /* 第一次进来、或存档里没有可用的对手数据。
+     分配完立刻落盘，否则下次打开又换一批人，「赢了疯狗 300 分」就成了空话。 */
+  if(!gotOpponents){
+    assignOpponents();
+    saveWallet();
+  }
 }
 function resetWallet(){
   state.points = [CONFIG.startPoints, CONFIG.startPoints, CONFIG.startPoints];
@@ -1126,44 +1189,147 @@ function estimateHandStrength(hand){
     - Play: generate candidates; if responding to current play, try to beat with minimal stronger candidate.
             if leading, choose candidate to reduce cards (prefer sequences/triples) with difficulty affecting aggressiveness.
    ========================= */
+/* =========================
+   AI 性格
+
+   每个 AI 座位有一种性格，同时影响三件事：叫分门槛、加倍门槛、出牌风格
+   （憋不憋炸弹、能压的时候压不压）。名字按性格分池，所以「疯狗」一定是
+   莽的，「扫地僧」一定是稳的 —— 名字本身就是行为的预告。
+
+   数值都是「门槛偏移」：正数 = 更保守（要更好的牌才动手）。
+   ========================= */
+const PERSONAS = {
+  bold: {
+    label:'莽', desc:'激进', tip:'敢叫敢加倍，见牌就压，炸弹说放就放',
+    bidBias:-12, doubleBias:-30, bombReluctance:0.10, passRate:0.02, chatty:0.8,
+    names:['疯狗','铁憨憨','大力','快枪手','一根筋','炮仗','愣头青'],
+    lines:{
+      bid3:['这把我来！','三分，不叫是孙子','牌好，让我上'],
+      bid0:['烂牌，不叫','这什么玩意儿'],
+      double:['加倍！怕你不成','翻倍玩才够劲'],
+      counter:['再翻！','来啊，谁怕谁'],
+      bomb:['炸！','吃我一炸','让你嚣张'],
+      rocket:['王炸！收工','双王在此'],
+      pass:['嘶……过','算你狠'],
+      last1:['就剩一张了啊','要走了要走了'],
+      win:['痛快！','说了这把我赢'],
+      lose:['再来再来！','手气背，不算']
+    }
+  },
+  steady: {
+    label:'稳', desc:'稳健', tip:'叫分谨慎，出牌留后手，能不压就不压',
+    bidBias:+4,  doubleBias:+20, bombReluctance:0.45, passRate:0.12, chatty:0.4,
+    names:['老王','老李头','常胜','扫地僧','老狐狸','半仙','教练'],
+    lines:{
+      bid3:['这牌可以叫','三分吧'],
+      bid0:['不叫，你们来','牌不行，让让'],
+      double:['那就加一手','有点意思，加'],
+      counter:['既然如此，反加','那我也翻'],
+      bomb:['该炸了','不得已'],
+      rocket:['王炸，抱歉了','这把只能这样'],
+      pass:['不出','留着后面用','你先请'],
+      last1:['单牌了','就剩一张'],
+      win:['承让','运气好'],
+      lose:['打得不错','下把再说']
+    }
+  },
+  sly: {
+    label:'阴', desc:'阴狠', tip:'炸弹憋到最后，专挑要命的时候出手',
+    bidBias:0,   doubleBias:-10, bombReluctance:0.72, passRate:0.16, chatty:0.65,
+    names:['闷葫芦','夜猫子','笑面虎','钉子户','蔫坏','算盘精','老烟枪'],
+    lines:{
+      bid3:['嘿嘿，三分','这把有点东西'],
+      bid0:['不叫……先看看','急什么，慢慢来'],
+      double:['加倍，你会后悔的','嘿，加'],
+      counter:['反加倍，别急着高兴','正等你这句'],
+      bomb:['等的就是现在','忍你很久了','惊喜吧'],
+      rocket:['王炸，藏得够久吧','压轴的来了'],
+      pass:['……过','不急，你先'],
+      last1:['单张咯','快了快了'],
+      win:['都在我算计里','说了你会后悔'],
+      lose:['算你运气','下次没这么便宜']
+    }
+  },
+  chill: {
+    label:'咸', desc:'佛系', tip:'很少叫地主、很少加倍，输赢随缘',
+    bidBias:+14, doubleBias:+45, bombReluctance:0.55, passRate:0.22, chatty:0.55,
+    names:['咸鱼','摸鱼王','随缘','养生局','困','躺平哥','喝口茶'],
+    lines:{
+      bid3:['……行吧，三分','那我勉为其难'],
+      bid0:['不叫，累','随便谁当都行'],
+      double:['加就加吧','都行都行'],
+      counter:['那……也加？','来都来了'],
+      bomb:['哦，炸了','顺手炸一下'],
+      rocket:['王炸。困了','结束吧'],
+      pass:['过','不出，省点力气','摸了'],
+      last1:['一张','快结束了'],
+      win:['赢了？哦','随便打打'],
+      lose:['输了就输了','正好休息']
+    }
+  }
+};
+const PERSONA_KEYS = Object.keys(PERSONAS);
+function personaOf(pid){ return PERSONAS[state.personas[pid]] || PERSONAS.steady; }
+
+/* 给两个 AI 座位分配互不相同的性格与名字。对手是持久的：一直是这两位，
+   直到你在菜单里点「换对手」—— 不然「赢了疯狗 300 分」这句话就没意义了。 */
+function assignOpponents(){
+  const keys = PERSONA_KEYS.slice();
+  for(let i=keys.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [keys[i],keys[j]]=[keys[j],keys[i]]; }
+  state.personas = [null, keys[0], keys[1]];
+  for(const pid of [1,2]){
+    const pool = PERSONAS[state.personas[pid]].names;
+    state.players[pid].name = pool[Math.floor(Math.random()*pool.length)];
+  }
+  /* 极小概率两池撞名（名字池不重叠，这里只是兜底） */
+  if(state.players[1].name === state.players[2].name) state.players[2].name += ' 二';
+}
+
 const AI = {
   /* 加不加倍：手牌够强就加。
      地主已经吃了 3 张底牌、牌力天然高一截，所以门槛比农民高；
      农民已经加倍时地主更谨慎（对面敢加，多半有货）。 */
-  chooseDouble: function(playerHand, role, anyFarmerDoubled=false){
+  chooseDouble: function(playerHand, role, anyFarmerDoubled=false, pid=1){
     const s = estimateHandStrength(playerHand);
     const d = CONFIG.aiDifficulty;
+    const persona = personaOf(pid);
     let threshold = (role === 'landlord') ? 150 : 110;
     if(role === 'landlord' && anyFarmerDoubled) threshold += 25;
     if(d === 'easy') threshold += 30;        // 简单：很少加倍
     else if(d === 'hard') threshold -= 15;   // 困难：更敢押
+    threshold += persona.doubleBias;         // 性格：莽的爱加，佛系的基本不加
     if(s < threshold) return 1;
     /* 到门槛也不是每次都加，留点不可预测性 */
-    const p = (d === 'hard') ? 0.9 : (d === 'easy' ? 0.5 : 0.75);
+    let p = (d === 'hard') ? 0.9 : (d === 'easy' ? 0.5 : 0.75);
+    if(persona.doubleBias < 0) p = Math.min(1, p + 0.12);
     return Math.random() < p ? 2 : 1;
   },
 
-  chooseBid: function(playerHand, currentMax){
+  /* 叫分门槛。17 张随机手牌的 estimateHandStrength 实测分布约为
+     59~160，中位数 98，四分位 89 / 108 —— 门槛按这个分布定，否则
+     不是人人都叫就是人人不叫，性格差异也就淹没了。 */
+  bidThresholds: { easy:[100,114,128], medium:[92,106,120], hard:[86,100,114] },
+
+  chooseBid: function(playerHand, currentMax, pid=1){
     // currentMax is current highest bid 0..3
-    const strength = estimateHandStrength(playerHand);
-    // thresholds tuned roughly
-    if(CONFIG.aiDifficulty==='easy'){
-      if(strength>35 && currentMax<1 && Math.random()<0.3) return 1;
-      if(strength>60 && currentMax<2 && Math.random()<0.15) return 2;
-      return 0;
-    } else if(CONFIG.aiDifficulty==='medium'){
-      if(strength>40 && currentMax<1) return 1;
-      if(strength>80 && currentMax<2) return 2;
-      if(strength>120 && currentMax<3) return 3;
-      return 0;
-    } else { // hard
-      if(strength>50 && currentMax<1) return 1;
-      if(strength>90 && currentMax<2) return 2;
-      if(strength>135 && currentMax<3) return 3;
-      // slight chance to steal high if close
-      if(Math.random()<0.06 && currentMax<3) return currentMax+1;
-      return 0;
-    }
+    const persona = personaOf(pid);
+    /* 性格偏移做在牌力上（等价于挪门槛，但不用把每个阈值都改一遍）：
+       负数 = 更敢叫 */
+    const strength = estimateHandStrength(playerHand) - persona.bidBias;
+    const t = this.bidThresholds[CONFIG.aiDifficulty] || this.bidThresholds.medium;
+
+    /* 先算这手牌「值几分」，再看叫不叫得过。
+       以前是逐条 return，currentMax 为 0 时命中第一条就返回 1，
+       再好的牌也只叫 1 分 —— 首家永远叫 1，等于没有叫分博弈。 */
+    let want = 0;
+    if(strength > t[0]) want = 1;
+    if(strength > t[1]) want = 2;
+    if(strength > t[2]) want = 3;
+
+    if(CONFIG.aiDifficulty === 'easy' && want > 0 && Math.random() < 0.25) want--;
+    if(CONFIG.aiDifficulty === 'hard' && want < 3 && want > 0 && Math.random() < 0.08) want++;
+
+    return want > currentMax ? want : 0;   // 叫不过就不叫
   },
 
   choosePlay: function(hand, currentPlay, playerId, gameState){
@@ -1180,6 +1346,21 @@ const AI = {
 
     // heuristic ordering: prefer smallest winning play that leaves hand favorable
     // compute score for candidate: lower is better to conserve high cards; harder difficulty picks higher-scoring plays
+    const persona = personaOf(playerId);
+
+    /* 炸弹的「舍不得程度」。
+       只在「除了炸就没别的能压」时才有意义 —— 有普通牌能压的时候
+       candScore 早就把炸弹排到最后了，再调权重也改不了结果。
+       所以这里直接决定：为这一手，值不值得动炸弹。
+       残局（手上没几张）谁都不再留着。 */
+    if(currentPlay && currentPlay.length > 0 && hand.length > 5){
+      const onlyBombs = valid.every(c=>{
+        const t = detectHandType(c).type;
+        return t === 'bomb' || t === 'rocket';
+      });
+      if(onlyBombs && Math.random() < persona.bombReluctance) return null;
+    }
+
     function candScore(c){
       const dt = detectHandType(c);
       let sc=0;
@@ -1205,8 +1386,8 @@ const AI = {
       // choose minimal beat if responding; if leading, choose longer combos
       if(currentPlay && currentPlay.length>0){
         valid.sort((a,b)=> candScore(a) - candScore(b));
-        // sometimes pass even when can beat (simulate human)
-        if(Math.random()<0.08) return null;
+        /* 能压也不一定压：莽夫几乎必压，佛系经常懒得压 */
+        if(Math.random() < persona.passRate) return null;
         return valid[0];
       } else {
         // lead: prefer sequences/triangles to shorten hand
@@ -1282,6 +1463,7 @@ function newDeal(){
   state.lastSettle = null;
   state.doubles = [1,1,1];
   state.roundBase = state.base;    // 本局的赌注从这一刻锁定
+  resetBubbles();
   // deal 17 each
   for(let i=0;i<17;i++){
     for(let pid=0;pid<3;pid++){
@@ -1318,11 +1500,12 @@ async function biddingPhase(gen){
       setBubble(idx, '想想…');
       await sleep(Math.max(300, (state.aiThinkMs||CONFIG.aiThinkMs) * 0.7));
       if(gen !== flowGen) return false;
-      bid = AI.chooseBid(player.hand, currentMax);
+      bid = AI.chooseBid(player.hand, currentMax, idx);
     }
 
     appendLog(bid > 0 ? `${player.name} 叫了 ${bid} 分` : `${player.name} 不叫`);
     setBubble(idx, bid > 0 ? `${bid} 分` : '不叫');
+    if(idx !== 0) sayLine(idx, bid > 0 ? 'bid3' : 'bid0');
     if(bid > currentMax){ currentMax = bid; highestBidder = idx; }
     render();
     if(currentMax === 3) break;     // 已经封顶，后面不用再问
@@ -1375,12 +1558,13 @@ async function doublingPhase(gen){
       setBubble(f, '想想…');
       await sleep(Math.max(260, (state.aiThinkMs||CONFIG.aiThinkMs) * 0.6));
       if(gen !== flowGen) return false;
-      d = AI.chooseDouble(state.players[f].hand, 'farmer');
+      d = AI.chooseDouble(state.players[f].hand, 'farmer', false, f);
     }
     state.doubles[f] = d;
     if(d > 1){
       appendLog(`${state.players[f].name} 加倍！`);
       setBubble(f, '加倍');
+      if(f !== 0) sayLine(f, 'double', true);
       beep(700, 0.09);
     } else {
       setBubble(f, '不加倍');
@@ -1402,12 +1586,13 @@ async function doublingPhase(gen){
     setBubble(lid, '想想…');
     await sleep(Math.max(260, (state.aiThinkMs||CONFIG.aiThinkMs) * 0.6));
     if(gen !== flowGen) return false;
-    ld = AI.chooseDouble(state.players[lid].hand, 'landlord', anyFarmerDoubled);
+    ld = AI.chooseDouble(state.players[lid].hand, 'landlord', anyFarmerDoubled, lid);
   }
   state.doubles[lid] = ld;
   if(ld > 1){
     appendLog(`${state.players[lid].name}（地主）反加倍！`);
     setBubble(lid, '反加倍');
+    if(lid !== 0) sayLine(lid, anyFarmerDoubled ? 'counter' : 'double', true);
     beep(760, 0.11);
   } else {
     setBubble(lid, '不加倍');
@@ -1536,9 +1721,14 @@ function doPlay(pid, cards, isAI=false){
     appendLog(`${played.type === 'rocket' ? '火箭' : '炸弹'}！倍数翻倍，当前 ×${humanMultiplier()}。`);
     beep(180, 0.22, 'sawtooth');
     if(pid !== 0 || state.autoPlay) showToast(`${player.name} 放了${played.type === 'rocket' ? '火箭' : '炸弹'} · 倍数 ×${humanMultiplier()}`);
+    /* 炸弹是最有戏的时刻，强制说话，不受话痨度和冷却限制 */
+    sayLine(pid, played.type === 'rocket' ? 'rocket' : 'bomb', true);
   } else {
     beep(600 + cards.length*20, 0.05);
   }
+
+  /* 报单：只剩一张时喊一声，这是斗地主里最需要被听见的信息 */
+  if(player.hand.length === 1) sayLine(pid, 'last1', true);
 
   saveState();
   render();
@@ -1581,6 +1771,7 @@ async function playFlow(gen){
       if(!play){
         appendLog(`${player.name} 不出`);
         setBubble(pid, '不出');
+        sayLine(pid, 'pass');
         state.passCount++;
         advanceTurnAfterPass(pid);
       } else {
@@ -1611,6 +1802,14 @@ async function playFlow(gen){
    地主对每个农民各结算一份，所以地主的进出是农民的两倍。 */
 function settleRound(landlordWins){
   const lid = state.landlordId;
+  /* 没有地主就没有结算关系。正常流程走不到这里（定了地主才会进出牌阶段），
+     但真走到了，下面每一步乘法都会得出 NaN，再被 saveWallet 原样写进
+     localStorage —— 三家积分就永久坏掉且看不出原因。宁可这局不结算。 */
+  if(lid !== 0 && lid !== 1 && lid !== 2){
+    console.warn('settleRound: 本局没有地主，跳过结算', lid);
+    state.lastSettle = null;
+    return null;
+  }
   const farmers = [0,1,2].filter(i=>i !== lid);
 
   /* 春天：地主赢且两名农民一手没出过。
@@ -1634,6 +1833,14 @@ function settleRound(landlordWins){
     lordTotal += unit;
   }
   deltas[lid] = landlordWins ? lordTotal : -lordTotal;
+
+  /* 最后一道闸：只要有一个数不是有限数，就一分不动。
+     积分是唯一跨局累计、且用户会在意的数据，宁可少记一局也不能写坏。 */
+  if(!deltas.every(Number.isFinite)){
+    console.warn('settleRound: 结算值异常，本局不计分', deltas);
+    state.lastSettle = null;
+    return null;
+  }
 
   for(let i=0;i<3;i++) state.points[i] += deltas[i];
   saveWallet();
@@ -1666,13 +1873,27 @@ function finishRound(winner){
   const settle = settleRound(landlordWins);
 
   appendLog(`本局结束：${winner.name} 出完牌，${landlordWins ? '地主胜' : '农民胜'}。`);
-  if(settle.spring) appendLog('春天！两名农民一张牌都没出，倍数 ×2。');
-  if(settle.antiSpring) appendLog('反春天！地主只出了第一手，倍数 ×2。');
-  appendLog(`结算：你 ${fmtDelta(settle.deltas[0])} 分，现有 ${state.points[0]} 分。`);
+  if(settle){
+    if(settle.spring) appendLog('春天！两名农民一张牌都没出，倍数 ×2。');
+    if(settle.antiSpring) appendLog('反春天！地主只出了第一手，倍数 ×2。');
+    appendLog(`结算：你 ${fmtDelta(settle.deltas[0])} 分，现有 ${state.points[0]} 分。`);
+  } else {
+    appendLog('本局无法结算，积分不变。');
+  }
+
+  /* 赢家和输家各说一句。同队的 AI 跟赢家一个口径。 */
+  for(const pid of [1,2]){
+    const sameSideAsWinner = (state.landlordId === pid) === landlordWins;
+    sayLine(pid, sameSideAsWinner ? 'win' : 'lose', true);
+  }
 
   beep(iWin ? 880 : 320, 0.18, iWin ? 'sine' : 'triangle');
   enablePlayerControls(false);
-  setTableHint(iWin ? `你赢了！${fmtDelta(settle.deltas[0])} 分` : `你输了 ${fmtDelta(settle.deltas[0])} 分`);
+  if(settle){
+    setTableHint(iWin ? `你赢了！${fmtDelta(settle.deltas[0])} 分` : `你输了 ${fmtDelta(settle.deltas[0])} 分`);
+  } else {
+    setTableHint(iWin ? '你赢了！' : '你输了');
+  }
   saveState();
   render();
   showResult(iWin, landlordWins, winner, settle);
@@ -1685,6 +1906,7 @@ async function startNewGame(){
   const gen = beginFlow();
   closeAllOverlays();
   newDeal();
+  appendLog(`本局对手：${state.players[1].name}（${personaOf(1).desc}）、${state.players[2].name}（${personaOf(2).desc}）。`);
   render();
   const ok = await biddingPhase(gen);
   if(!ok || gen !== flowGen) return;
@@ -1744,10 +1966,64 @@ function setTableHint(txt){ el('tableHint').textContent = txt; }
 function setStatus(txt){ el('statusText').textContent = txt; }
 
 const BUBBLE_IDS = ['myBubbleUnused','leftBubble','rightBubble'];
+/* 气泡分两种内容：牌局信息（"三带对"/"不出"）和性格台词。
+   台词是临时的，说完要退回到最新的牌局信息 —— 所以这里记住每个座位
+   当前该显示的 label，台词结束后还原。 */
+const bubbleState = {
+  1:{ label:'等待', timer:null, lastTalk:0 },
+  2:{ label:'等待', timer:null, lastTalk:0 }
+};
+
+function paintBubble(pid, txt, isTalk){
+  const node = el(BUBBLE_IDS[pid]);
+  if(!node) return;
+  node.textContent = txt;
+  node.classList.toggle('talk', !!isTalk);
+}
+
 function setBubble(pid, txt){
   if(pid === 0){ setStatus(txt); return; }
-  const node = el(BUBBLE_IDS[pid]);
-  if(node) node.textContent = txt;
+  const st = bubbleState[pid];
+  if(!st) return;
+  st.label = txt;
+  if(st.timer) return;          // 正在说台词，等它说完再还原成这个 label
+  paintBubble(pid, txt, false);
+}
+
+/* sayLine: 让某个 AI 说一句符合性格的话。
+   受性格的话痨程度和每座位 3 秒冷却限制，免得一直在刷屏。 */
+function sayLine(pid, event, force=false){
+  if(pid === 0) return;
+  const st = bubbleState[pid];
+  const persona = personaOf(pid);
+  const pool = persona.lines[event];
+  if(!st || !pool || !pool.length) return;
+
+  const now = Date.now();
+  if(!force){
+    if(now - st.lastTalk < 3000) return;
+    if(Math.random() > persona.chatty) return;
+  }
+  st.lastTalk = now;
+
+  const line = pool[Math.floor(Math.random() * pool.length)];
+  if(st.timer) clearTimeout(st.timer);
+  paintBubble(pid, line, true);
+  st.timer = setTimeout(()=>{
+    st.timer = null;
+    paintBubble(pid, st.label, false);
+  }, 1900);
+}
+
+/* 换局/新局时把没说完的话清掉，免得串到下一局 */
+function resetBubbles(){
+  for(const pid of [1,2]){
+    const st = bubbleState[pid];
+    if(st.timer){ clearTimeout(st.timer); st.timer = null; }
+    st.label = '等待';
+    st.lastTalk = 0;
+    paintBubble(pid, '等待', false);
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -1913,7 +2189,7 @@ function renderHand(){
   layoutHand(perRow);
 }
 
-function renderSeat(pid, seatId, nameId, countId, pointsId){
+function renderSeat(pid, seatId, nameId, countId, pointsId, avatarId){
   const seat = el(seatId);
   seat.classList.toggle('is-turn', state.turn === pid && state.phase !== 'over');
   seat.classList.toggle('is-landlord', state.landlordId === pid);
@@ -1922,12 +2198,18 @@ function renderSeat(pid, seatId, nameId, countId, pointsId){
   const pts = el(pointsId);
   pts.textContent = `${state.points[pid]} 分`;
   pts.classList.toggle('down', state.points[pid] < 0);
+  /* 头像里放性格字，悬停/长按能看到这个性格是什么打法 */
+  const persona = personaOf(pid);
+  const av = el(avatarId);
+  av.textContent = persona.label;
+  av.title = `${persona.desc}：${persona.tip}`;
+  seat.dataset.persona = state.personas[pid];
 }
 
 function render(){
   renderWallet();
-  renderSeat(1, 'seatLeft', 'leftName', 'leftCount', 'leftPoints');
-  renderSeat(2, 'seatRight', 'rightName', 'rightCount', 'rightPoints');
+  renderSeat(1, 'seatLeft', 'leftName', 'leftCount', 'leftPoints', 'leftAvatar');
+  renderSeat(2, 'seatRight', 'rightName', 'rightCount', 'rightPoints', 'rightAvatar');
   el('myName').textContent = '你' + (state.landlordId === 0 ? ' · 地主' : '');
 
   /* 桌面上的牌 */
@@ -1952,6 +2234,7 @@ function render(){
   renderHand();
   renderCounter();
   renderCounterCtl();
+  renderOpponents();
   el('statLead').textContent =
     `第 ${state.round} 局 · 你胜 ${state.stats.wins} / ${state.stats.total} · 积分 ${state.points[0]}`;
   el('autoBtn').textContent = state.autoPlay ? '已开启' : '关闭';
@@ -2010,6 +2293,31 @@ function renderCounter(){
     const cls = n === 0 ? ' zero' : (n === max ? ' many' : '');
     return `<div class="cc${cls}"><span class="r">${COUNTER_LABEL[r] || r}</span><span class="n">${n}</span></div>`;
   }).join('');
+}
+
+/* 菜单里的对手名片：名字 + 性格 + 这个性格的打法说明 */
+function renderOpponents(){
+  el('oppList').innerHTML = [1,2].map(pid=>{
+    const p = personaOf(pid);
+    return `<div class="opp">
+      <span class="tag">${p.label}</span>
+      <span class="nm">${state.players[pid].name}</span>
+      <span class="ds">${p.tip}</span>
+    </div>`;
+  }).join('');
+}
+
+/* 换对手：牌局中途换人会让这一局的性格前后不一致，所以要等这局打完 */
+function swapOpponents(){
+  if(state.phase === 'playing' || state.phase === 'doubling'){
+    showToast('这局打完再换');
+    return;
+  }
+  assignOpponents();
+  saveWallet();
+  render();
+  appendLog(`换了对手：${state.players[1].name}（${personaOf(1).desc}）、${state.players[2].name}（${personaOf(2).desc}）。`);
+  showToast(`新对手：${state.players[1].name} 和 ${state.players[2].name}`);
 }
 
 /* 菜单里的记牌器控件：没解锁时是「解锁」按钮，解锁后是开关 */
@@ -2155,6 +2463,17 @@ function closeAllOverlays(){
   }
 }
 function showResult(iWin, landlordWins, winner, settle){
+  /* 结算被跳过时只报胜负，不编造分数 */
+  if(!settle){
+    el('resultTitle').textContent = iWin ? '🎉 你赢了' : '这局输了';
+    el('resultBody').innerHTML =
+      `<div>${winner.name} 先出完牌，<b>${landlordWins ? '地主胜' : '农民胜'}</b>。</div>` +
+      `<div>本局未能结算，积分不变。</div>` +
+      `<div>累计：<b>${state.stats.wins} 胜 / ${state.stats.total} 局</b></div>`;
+    el('resultOverlay').classList.add('show');
+    return;
+  }
+
   const mine = settle.deltas[0];
   el('resultTitle').textContent = iWin
     ? `🎉 你赢了 ${fmtDelta(mine)} 分`
@@ -2275,6 +2594,7 @@ function bindEvents(){
     showToast(state.phase === 'playing' ? `底分 ${state.base}，下一局生效` : `底分改为 ${state.base}`);
   });
   el('resetPointsBtn').addEventListener('click', resetWallet);
+  el('swapOppBtn').addEventListener('click', swapOpponents);
 
   window.addEventListener('keydown', (e)=>{
     if(e.target.tagName === 'SELECT') return;
