@@ -1,0 +1,17 @@
+{
+  "name": "单人斗地主",
+  "short_name": "斗地主",
+  "description": "离线可玩的单人斗地主，一名玩家对两名 AI。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07356f",
+  "theme_color": "#07356f",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icons/doudizhu-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/doudizhu-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/doudizhu-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
