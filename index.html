@@ -170,6 +170,21 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
 .table .played .card:first-child{margin-left:0}
 .table .hintline{font-size:12.5px;color:rgba(255,255,255,.8);text-align:center;line-height:1.55;padding:0 6px}
 .table .owner{font-size:11.5px;color:var(--gold)}
+/* 记牌器：15 个点数一行铺满，数字是两名对手手里还剩的张数 */
+.counter{
+  display:grid;grid-template-columns:repeat(15,1fr);gap:2px;
+  width:100%;margin-top:auto;padding:5px 3px;
+  border:1px solid rgba(255,255,255,.16);border-radius:10px;
+  background:rgba(0,0,0,.26);
+}
+.counter .cc{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0}
+.counter .cc .r{font-size:9.5px;line-height:1;color:rgba(255,255,255,.62)}
+.counter .cc .n{font-size:12px;line-height:1.15;font-weight:700;color:var(--fg)}
+/* 打光的点数压暗，剩得多的标出来——扫一眼就知道哪门还有牌 */
+.counter .cc.zero .r,.counter .cc.zero .n{color:rgba(255,255,255,.22)}
+.counter .cc.many .n{color:var(--gold)}
+.settle .who-row .rl.dbl{color:#ffd9a0;border-color:rgba(255,170,80,.5);background:rgba(255,150,60,.16)}
+
 .bottom-cards{position:absolute;top:6px;right:8px;display:flex}
 .bottom-cards .card{margin-left:calc(-1 * var(--cw) * .44)}
 .bottom-cards .card:first-child{margin-left:0}
@@ -310,7 +325,9 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
   background:rgba(255,255,255,.10);border:1px solid var(--line);border-radius:10px;padding:7px 9px;
 }
 .sheet .bids{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px}
+.sheet .bids.two{grid-template-columns:1fr 1fr}
 .sheet .bids button{min-height:54px;font-size:16px;font-weight:700}
+.sheet .lead b{color:var(--gold)}
 .sheet .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
 .log{
   max-height:34dvh;overflow:auto;font-size:12.5px;line-height:1.65;color:var(--muted);
@@ -407,6 +424,8 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
     <div class="played" id="playedCards" aria-live="polite"></div>
     <div class="owner" id="playedOwner"></div>
     <div class="hintline" id="tableHint">准备发牌…</div>
+    <!-- 记牌器：两名对手手里各点数还剩几张（= 总数 − 已出 − 我的手牌，公开信息推得出来） -->
+    <div class="counter" id="counter" hidden aria-label="记牌器"></div>
   </main>
 
   <div>
@@ -445,6 +464,18 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
   </div>
 </div>
 
+<!-- 加倍：地主定下之后、出牌之前 -->
+<div class="overlay" id="doubleOverlay">
+  <div class="sheet">
+    <h2 id="doubleTitle">加倍</h2>
+    <p class="lead" id="doubleLead"></p>
+    <div class="bids two">
+      <button class="ghost" data-double="1">不加倍</button>
+      <button class="primary" data-double="2" id="doubleYes">加倍 ×2</button>
+    </div>
+  </div>
+</div>
+
 <!-- 菜单 / 设置 / 历史 / 规则 -->
 <div class="overlay" id="menuOverlay">
   <div class="sheet">
@@ -460,6 +491,10 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
         <option value="20">20 分</option>
         <option value="50">50 分</option>
       </select>
+    </div>
+    <div class="row">
+      <label for="counterToggle">记牌器</label>
+      <span id="counterCtl"></span>
     </div>
     <div class="row">
       <label>积分</label>
@@ -504,9 +539,11 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
         54 张牌，你 + 2 名 AI，每人 17 张，底牌 3 张归地主。<br />
         牌型：单张、对子、三张、三带一/带对、顺子（≥5 张连续）、连对（≥3 对连续）、飞机（连续三张，可带翅膀）、炸弹（4 张同点）、火箭（双王）。<br />
         除炸弹和火箭外，必须同牌型、同张数才能比大小。<br /><br />
-        <b>积分：</b>本局分数 = 底分 × 叫分 × 2<sup>炸弹+火箭数</sup> × 春天倍数。<br />
-        地主赢，地主收两家各一份、共赢两份；农民赢，地主付两家各一份。<br />
-        <b>春天：</b>地主走完而两名农民一张没出，×2；农民走完而地主只出过第一手（反春天），同样 ×2。<br /><br />
+        <b>积分：</b>一份 = 底分 × 叫分 × 2<sup>炸弹+火箭数</sup> × 春天倍数 × 加倍。<br />
+        地主分别和两名农民各结算一份，所以地主赢收两份、输付两份。<br />
+        <b>春天：</b>地主走完而两名农民一张没出，×2；农民走完而地主只出过第一手（反春天），同样 ×2。<br />
+        <b>加倍：</b>定地主后，两名农民各自决定加不加倍（只影响自己那一份），地主看到结果后可以反加倍（对两家同时生效）。<br />
+        <b>记牌器：</b>花 500 积分一次性解锁，之后在设置里开关。显示两名对手手里各点数还剩几张。<br /><br />
         <b>手牌操作：</b>点一下选中/取消；<b>按住横向滑过多张牌可连续多选</b>。<br />
         <b>键盘：</b>Enter 出牌 · 空格 不出 · H 提示 · T 托管。
       </div>
@@ -615,12 +652,30 @@ let state = {
   bidValue: 0,
   bombCount: 0,
   playCounts: [0,0,0],
-  lastSettle: null
+  lastSettle: null,
+
+  /* doubles[pid]：农民各自的加倍（1 或 2），地主的反加倍（1 或 2）。
+     农民可以各加各的，所以地主是分别和两个农民结算，不是一个统一的倍数。 */
+  doubles: [1,1,1],
+
+  /* 记牌器：花积分一次性解锁，之后可自由开关 */
+  counterOn: false,
+  unlocked: { counter:false }
 };
 
-/* 本局倍数：叫分 × 2^(炸弹+火箭)。春天要等结算才知道，所以不含在这里。 */
-function currentMultiplier(){
-  return (state.bidValue || 0) * Math.pow(2, state.bombCount);
+/* 本局的公共倍数：叫分 × 2^(炸弹+火箭) × 地主反加倍。
+   春天要等结算才知道，农民各自的加倍也不在这里（那是每家单独的）。 */
+function baseMultiplier(){
+  const lordD = (state.landlordId == null) ? 1 : state.doubles[state.landlordId];
+  return (state.bidValue || 0) * Math.pow(2, state.bombCount) * lordD;
+}
+
+/* 顶栏那个 chip 显示的倍数：站在「我」的角度。
+   我是农民时就是我这一份的倍数；我是地主时是每一份的公共倍数（两家可能不同，详情在 title 里）。 */
+function humanMultiplier(){
+  const m = baseMultiplier();
+  if(state.landlordId != null && state.landlordId !== 0) return m * state.doubles[0];
+  return m;
 }
 
 /* =========================
@@ -651,6 +706,7 @@ function saveState(){
       bombCount: state.bombCount,
       playCounts: state.playCounts,
       roundBase: state.roundBase,
+      doubles: state.doubles,
       logLines: state.logLines.slice(0, 40)
     }));
   }catch(e){ /* 隐私模式 / 存储写满：忽略，游戏照常进行 */ }
@@ -685,6 +741,7 @@ function loadState(){
     state.bombCount = s.bombCount || 0;
     state.playCounts = Array.isArray(s.playCounts) && s.playCounts.length===3 ? s.playCounts : [0,0,0];
     state.roundBase = (typeof s.roundBase === 'number' && s.roundBase > 0) ? s.roundBase : state.base;
+    state.doubles = (Array.isArray(s.doubles) && s.doubles.length === 3) ? s.doubles : [1,1,1];
     state.logLines = Array.isArray(s.logLines) ? s.logLines : [];
     return true;
   }catch(e){ return false; }
@@ -693,7 +750,10 @@ function loadState(){
 /* 钱包：跨局累计，和牌局快照分开存 —— 中途退出、清掉牌局，积分也该留着 */
 function saveWallet(){
   try{
-    localStorage.setItem(WALLET_KEY, JSON.stringify({ points: state.points, base: state.base }));
+    localStorage.setItem(WALLET_KEY, JSON.stringify({
+      points: state.points, base: state.base,
+      unlocked: state.unlocked, counterOn: state.counterOn
+    }));
   }catch(e){}
 }
 function loadWallet(){
@@ -704,6 +764,8 @@ function loadWallet(){
       state.points = s.points;
     }
     if(typeof s.base === 'number' && s.base > 0) state.base = CONFIG.baseScore = s.base;
+    if(s.unlocked && typeof s.unlocked === 'object') state.unlocked.counter = !!s.unlocked.counter;
+    state.counterOn = !!s.counterOn && state.unlocked.counter;
   }catch(e){}
 }
 function resetWallet(){
@@ -1065,6 +1127,22 @@ function estimateHandStrength(hand){
             if leading, choose candidate to reduce cards (prefer sequences/triples) with difficulty affecting aggressiveness.
    ========================= */
 const AI = {
+  /* 加不加倍：手牌够强就加。
+     地主已经吃了 3 张底牌、牌力天然高一截，所以门槛比农民高；
+     农民已经加倍时地主更谨慎（对面敢加，多半有货）。 */
+  chooseDouble: function(playerHand, role, anyFarmerDoubled=false){
+    const s = estimateHandStrength(playerHand);
+    const d = CONFIG.aiDifficulty;
+    let threshold = (role === 'landlord') ? 150 : 110;
+    if(role === 'landlord' && anyFarmerDoubled) threshold += 25;
+    if(d === 'easy') threshold += 30;        // 简单：很少加倍
+    else if(d === 'hard') threshold -= 15;   // 困难：更敢押
+    if(s < threshold) return 1;
+    /* 到门槛也不是每次都加，留点不可预测性 */
+    const p = (d === 'hard') ? 0.9 : (d === 'easy' ? 0.5 : 0.75);
+    return Math.random() < p ? 2 : 1;
+  },
+
   chooseBid: function(playerHand, currentMax){
     // currentMax is current highest bid 0..3
     const strength = estimateHandStrength(playerHand);
@@ -1202,6 +1280,7 @@ function newDeal(){
   state.bombCount = 0;
   state.playCounts = [0,0,0];
   state.lastSettle = null;
+  state.doubles = [1,1,1];
   state.roundBase = state.base;    // 本局的赌注从这一刻锁定
   // deal 17 each
   for(let i=0;i<17;i++){
@@ -1273,6 +1352,105 @@ async function biddingPhase(gen){
   render();
   await sleep(500);
   return gen === flowGen;
+}
+
+/* 加倍阶段：地主定下之后、出牌之前。
+   两名农民先各自决定加不加倍（互不影响，各算各的），地主看到结果后可以反加倍。
+   反加倍对两个农民都生效，所以最终每一份 = 公共倍数 × 该农民的加倍。 */
+async function doublingPhase(gen){
+  state.phase = 'doubling';
+  const lid = state.landlordId;
+  const farmers = [0,1,2].filter(i=>i !== lid);
+
+  for(const f of farmers){
+    state.turn = f;
+    render();
+    let d;
+    if(f === 0){
+      setTableHint('要不要加倍？');
+      d = await humanDoublePrompt('farmer');
+      if(gen !== flowGen || d === 'cancel') return false;
+    } else {
+      setTableHint(`${state.players[f].name} 考虑加倍…`);
+      setBubble(f, '想想…');
+      await sleep(Math.max(260, (state.aiThinkMs||CONFIG.aiThinkMs) * 0.6));
+      if(gen !== flowGen) return false;
+      d = AI.chooseDouble(state.players[f].hand, 'farmer');
+    }
+    state.doubles[f] = d;
+    if(d > 1){
+      appendLog(`${state.players[f].name} 加倍！`);
+      setBubble(f, '加倍');
+      beep(700, 0.09);
+    } else {
+      setBubble(f, '不加倍');
+    }
+    render();
+  }
+
+  /* 地主反加倍：能看到农民加没加，所以是有信息的决策 */
+  const anyFarmerDoubled = farmers.some(f=>state.doubles[f] > 1);
+  state.turn = lid;
+  render();
+  let ld;
+  if(lid === 0){
+    setTableHint(anyFarmerDoubled ? '农民加倍了，你要反加倍吗？' : '要不要加倍？');
+    ld = await humanDoublePrompt('landlord', anyFarmerDoubled);
+    if(gen !== flowGen || ld === 'cancel') return false;
+  } else {
+    setTableHint(`${state.players[lid].name} 考虑加倍…`);
+    setBubble(lid, '想想…');
+    await sleep(Math.max(260, (state.aiThinkMs||CONFIG.aiThinkMs) * 0.6));
+    if(gen !== flowGen) return false;
+    ld = AI.chooseDouble(state.players[lid].hand, 'landlord', anyFarmerDoubled);
+  }
+  state.doubles[lid] = ld;
+  if(ld > 1){
+    appendLog(`${state.players[lid].name}（地主）反加倍！`);
+    setBubble(lid, '反加倍');
+    beep(760, 0.11);
+  } else {
+    setBubble(lid, '不加倍');
+  }
+
+  const detail = farmers
+    .map(f=>`${state.players[f].name} ×${baseMultiplier() * state.doubles[f]}`)
+    .join('，');
+  appendLog(`加倍结束：${detail}。`);
+  state.phase = 'playing';
+  saveState();
+  render();
+  await sleep(400);
+  return gen === flowGen;
+}
+
+/* humanDoublePrompt: 加倍浮层，返回 1 / 2 / 'cancel' */
+function humanDoublePrompt(role, anyFarmerDoubled=false){
+  return new Promise(resolve=>{
+    const overlay = el('doubleOverlay');
+    el('doubleTitle').textContent = role === 'landlord' ? '地主加倍' : '农民加倍';
+    el('doubleLead').innerHTML = role === 'landlord'
+      ? (anyFarmerDoubled
+          ? `有农民加倍了。你可以<b>反加倍</b>，对两家同时生效 —— 赢得更多，输得也更多。<br />当前公共倍数 ×${baseMultiplier()}。`
+          : `农民都没加倍。你仍然可以加倍，把这局的输赢放大一倍。<br />当前公共倍数 ×${baseMultiplier()}。`)
+      : `加倍只影响<b>你自己这一份</b>，另一名农民各算各的。<br />当前公共倍数 ×${baseMultiplier()}，你手里 ${state.players[0].hand.length} 张牌。`;
+    el('doubleYes').textContent = role === 'landlord' && anyFarmerDoubled ? '反加倍 ×2' : '加倍 ×2';
+
+    function onClick(ev){
+      const btn = ev.target.closest('[data-double]');
+      if(!btn) return;
+      cleanup();
+      resolve(Number(btn.dataset.double));
+    }
+    function cleanup(){
+      overlay.classList.remove('show');
+      overlay.removeEventListener('click', onClick);
+      pendingResolve = null;
+    }
+    pendingResolve = (v)=>{ cleanup(); resolve(v); };
+    overlay.addEventListener('click', onClick);
+    overlay.classList.add('show');
+  });
 }
 
 /* humanBidPrompt: 独立浮层，返回 0..3 或 'cancel' */
@@ -1355,9 +1533,9 @@ function doPlay(pid, cards, isAI=false){
   const isBomb = (played.type === 'bomb' || played.type === 'rocket');
   if(isBomb){
     state.bombCount++;
-    appendLog(`${played.type === 'rocket' ? '火箭' : '炸弹'}！倍数翻倍，当前 ×${currentMultiplier()}。`);
+    appendLog(`${played.type === 'rocket' ? '火箭' : '炸弹'}！倍数翻倍，当前 ×${humanMultiplier()}。`);
     beep(180, 0.22, 'sawtooth');
-    if(pid !== 0 || state.autoPlay) showToast(`${player.name} 放了${played.type === 'rocket' ? '火箭' : '炸弹'} · 倍数 ×${currentMultiplier()}`);
+    if(pid !== 0 || state.autoPlay) showToast(`${player.name} 放了${played.type === 'rocket' ? '火箭' : '炸弹'} · 倍数 ×${humanMultiplier()}`);
   } else {
     beep(600 + cards.length*20, 0.05);
   }
@@ -1441,12 +1619,21 @@ function settleRound(landlordWins){
   const antiSpring = !landlordWins && state.playCounts[lid] === 1;
   const springMult = (spring || antiSpring) ? 2 : 1;
 
-  const mult = Math.max(1, state.bidValue) * Math.pow(2, state.bombCount) * springMult;
-  const unit = state.roundBase * mult;
+  /* 公共倍数：叫分 × 炸弹 × 春天 × 地主反加倍。
+     农民各自的加倍只作用在自己那一份上，所以地主是分别和两个农民结算。 */
+  const lordD = state.doubles[lid];
+  const commonMult = Math.max(1, state.bidValue) * Math.pow(2, state.bombCount) * springMult * lordD;
 
   const deltas = [0,0,0];
-  deltas[lid] = landlordWins ? unit * 2 : -unit * 2;
-  for(const f of farmers) deltas[f] = landlordWins ? -unit : unit;
+  const units = [0,0,0];
+  let lordTotal = 0;
+  for(const f of farmers){
+    const unit = state.roundBase * commonMult * state.doubles[f];
+    units[f] = unit;
+    deltas[f] = landlordWins ? -unit : unit;
+    lordTotal += unit;
+  }
+  deltas[lid] = landlordWins ? lordTotal : -lordTotal;
 
   for(let i=0;i<3;i++) state.points[i] += deltas[i];
   saveWallet();
@@ -1456,8 +1643,12 @@ function settleRound(landlordWins){
     bid: Math.max(1, state.bidValue),
     bombs: state.bombCount,
     spring, antiSpring, springMult,
-    mult, unit, deltas,
-    landlordId: lid, landlordWins
+    lordDouble: lordD,
+    doubles: state.doubles.slice(),
+    commonMult, units, deltas,
+    landlordId: lid, landlordWins,
+    /* 两家农民倍数相同时才有「统一的一份」，结算面板据此决定怎么展示 */
+    uniformUnit: (units[farmers[0]] === units[farmers[1]]) ? units[farmers[0]] : null
   };
   return state.lastSettle;
 }
@@ -1477,7 +1668,7 @@ function finishRound(winner){
   appendLog(`本局结束：${winner.name} 出完牌，${landlordWins ? '地主胜' : '农民胜'}。`);
   if(settle.spring) appendLog('春天！两名农民一张牌都没出，倍数 ×2。');
   if(settle.antiSpring) appendLog('反春天！地主只出了第一手，倍数 ×2。');
-  appendLog(`结算：${settle.base} × ${settle.bid} × 2^${settle.bombs}${settle.springMult>1?' × 2':''} = 每份 ${settle.unit} 分，你 ${fmtDelta(settle.deltas[0])}，现有 ${state.points[0]} 分。`);
+  appendLog(`结算：你 ${fmtDelta(settle.deltas[0])} 分，现有 ${state.points[0]} 分。`);
 
   beep(iWin ? 880 : 320, 0.18, iWin ? 'sine' : 'triangle');
   enablePlayerControls(false);
@@ -1497,6 +1688,8 @@ async function startNewGame(){
   render();
   const ok = await biddingPhase(gen);
   if(!ok || gen !== flowGen) return;
+  const ok2 = await doublingPhase(gen);
+  if(!ok2 || gen !== flowGen) return;
   await playFlow(gen);
 }
 
@@ -1757,6 +1950,8 @@ function render(){
   }
 
   renderHand();
+  renderCounter();
+  renderCounterCtl();
   el('statLead').textContent =
     `第 ${state.round} 局 · 你胜 ${state.stats.wins} / ${state.stats.total} · 积分 ${state.points[0]}`;
   el('autoBtn').textContent = state.autoPlay ? '已开启' : '关闭';
@@ -1770,12 +1965,83 @@ function renderWallet(){
   coin.title = `你的积分：${state.points[0]}（底分 ${state.base}）`;
 
   const mult = el('multChip');
-  const m = currentMultiplier();
+  const m = humanMultiplier();
   /* 叫分之前没有倍数可言，显示底分让人知道这局赌多大 */
   mult.textContent = m > 0 ? `×${m}` : `底 ${state.roundBase}`;
-  mult.title = m > 0
-    ? `本局倍数 ×${m}（叫分 ${state.bidValue}${state.bombCount ? ` · 炸弹 ${state.bombCount}` : ''}）· 一份 ${state.roundBase * m} 分`
-    : `底分 ${state.roundBase}`;
+  if(m > 0){
+    const bits = [`叫分 ${state.bidValue}`];
+    if(state.bombCount) bits.push(`炸弹 ${state.bombCount}`);
+    if(state.landlordId != null && state.doubles[state.landlordId] > 1) bits.push('地主加倍');
+    if(state.landlordId !== 0 && state.doubles[0] > 1) bits.push('你加倍');
+    /* 我是地主时两家农民可能加得不一样，把各自那份也列出来 */
+    let tail = ` · 一份 ${state.roundBase * m} 分`;
+    if(state.landlordId === 0){
+      const fs = [1,2].map(f=>`${state.players[f].name} ${state.roundBase * m * state.doubles[f]}`).join('，');
+      tail = ` · 对手各一份：${fs}`;
+    }
+    mult.title = `本局倍数 ×${m}（${bits.join(' · ')}）${tail}`;
+  } else {
+    mult.title = `底分 ${state.roundBase}`;
+  }
+}
+
+/* 记牌器 ------------------------------------------------------------------
+   显示两名对手手里各点数还剩几张。这等于「总数 − 已打出的 − 我手里的」，
+   全是公开信息，人自己也能记，所以直接从对手手牌数出来是等价的，
+   而且刷新恢复后不需要额外存已出牌的账。 */
+const COUNTER_RANKS = [3,4,5,6,7,8,9,10,11,12,13,14,15,16,17];
+const COUNTER_LABEL = {10:'10',11:'J',12:'Q',13:'K',14:'A',15:'2',16:'小',17:'大'};
+
+function renderCounter(){
+  const box = el('counter');
+  const on = state.counterOn && state.unlocked.counter && state.landlordId != null;
+  box.hidden = !on;
+  if(!on) return;
+
+  const left = {};
+  for(const pid of [0,1,2]){
+    if(pid === 0) continue;               // 我自己的牌不算「未知」
+    for(const c of state.players[pid].hand) left[c.rank] = (left[c.rank] || 0) + 1;
+  }
+
+  box.innerHTML = COUNTER_RANKS.map(r=>{
+    const n = left[r] || 0;
+    const max = (r >= 16) ? 1 : 4;
+    const cls = n === 0 ? ' zero' : (n === max ? ' many' : '');
+    return `<div class="cc${cls}"><span class="r">${COUNTER_LABEL[r] || r}</span><span class="n">${n}</span></div>`;
+  }).join('');
+}
+
+/* 菜单里的记牌器控件：没解锁时是「解锁」按钮，解锁后是开关 */
+const COUNTER_PRICE = 500;
+function renderCounterCtl(){
+  const box = el('counterCtl');
+  if(!state.unlocked.counter){
+    box.innerHTML = `<button class="ghost" id="unlockCounterBtn">解锁 · ${COUNTER_PRICE} 分</button>`;
+    el('unlockCounterBtn').addEventListener('click', unlockCounter);
+  } else {
+    box.innerHTML = `<button class="ghost" id="counterToggle">${state.counterOn ? '已开启' : '关闭'}</button>`;
+    el('counterToggle').addEventListener('click', ()=>{
+      state.counterOn = !state.counterOn;
+      saveWallet();
+      renderCounterCtl();
+      renderCounter();
+      showToast(state.counterOn ? '记牌器已开启' : '记牌器已关闭');
+    });
+  }
+}
+function unlockCounter(){
+  if(state.points[0] < COUNTER_PRICE){
+    showToast(`积分不够，还差 ${COUNTER_PRICE - state.points[0]} 分`);
+    return;
+  }
+  state.points[0] -= COUNTER_PRICE;
+  state.unlocked.counter = true;
+  state.counterOn = true;
+  saveWallet();
+  appendLog(`花 ${COUNTER_PRICE} 分解锁了记牌器。`);
+  render();
+  showToast('记牌器已解锁');
 }
 
 /* 炸弹翻倍时让倍数 chip 闪一下 */
@@ -1884,7 +2150,7 @@ function onHumanHint(){
 
 /* ---- 浮层 ---------------------------------------------------------------- */
 function closeAllOverlays(){
-  for(const id of ['bidOverlay','menuOverlay','resultOverlay']){
+  for(const id of ['bidOverlay','doubleOverlay','menuOverlay','resultOverlay']){
     el(id).classList.remove('show');
   }
 }
@@ -1901,12 +2167,19 @@ function showResult(iWin, landlordWins, winner, settle){
   ];
   if(settle.bombs > 0) terms.push(`<span class="term">${settle.bombs} 炸 <b>${Math.pow(2, settle.bombs)}</b></span>`);
   if(settle.springMult > 1) terms.push(`<span class="term">${settle.spring ? '春天' : '反春天'} <b>2</b></span>`);
+  if(settle.lordDouble > 1) terms.push(`<span class="term">地主加倍 <b>2</b></span>`);
+
+  /* 两家农民加倍不同时，就没有「统一的一份」可言，改成每行标各自的倍数 */
+  const eq = settle.uniformUnit != null
+    ? `每份 ${settle.uniformUnit} 分`
+    : `每份见下`;
 
   const rows = [0,1,2].map(pid=>{
     const d = settle.deltas[pid];
     const isLandlord = (pid === settle.landlordId);
+    const dbl = (!isLandlord && settle.doubles[pid] > 1) ? '<span class="rl dbl">加倍</span>' : '';
     return `<div class="who-row${pid===0?' me':''}">
-      <span class="rl">${isLandlord ? '地主' : '农民'}</span>
+      <span class="rl">${isLandlord ? '地主' : '农民'}</span>${dbl}
       <span class="nm">${state.players[pid].name}</span>
       <span class="dt ${d >= 0 ? 'up' : 'down'}">${fmtDelta(d)}</span>
       <span class="bal">${state.points[pid]} 分</span>
@@ -1917,7 +2190,7 @@ function showResult(iWin, landlordWins, winner, settle){
     `<div>${winner.name} 先出完牌，<b>${landlordWins ? '地主胜' : '农民胜'}</b>。</div>` +
     `<div>你这局的身份：<b>${state.landlordId === 0 ? '地主' : '农民'}</b></div>` +
     `<div class="settle">
-       <div class="calc">${terms.join('<span>×</span>')}<span class="eq">每份 ${settle.unit} 分</span></div>
+       <div class="calc">${terms.join('<span>×</span>')}<span class="eq">${eq}</span></div>
        ${rows}
      </div>` +
     `<div>累计：<b>${state.stats.wins} 胜 / ${state.stats.total} 局</b></div>`;
