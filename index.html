@@ -86,6 +86,20 @@ body{
   padding:3px 9px;border:1px solid var(--line);border-radius:999px;
   background:rgba(255,255,255,.10);font-size:11.5px;color:var(--muted);white-space:nowrap;
 }
+/* 积分与倍数：牌局中最需要一眼看到的两个数，所以放在顶栏而不是菜单里 */
+.chip.coin{color:var(--gold);border-color:rgba(255,212,107,.45);background:rgba(255,212,107,.12);font-weight:700}
+.chip.coin.down{color:#ff9a9a;border-color:rgba(255,120,120,.45);background:rgba(255,90,90,.14)}
+.chip.mult{color:#ffd9a0;border-color:rgba(255,170,80,.45);background:rgba(255,150,60,.14);font-weight:700}
+/* 炸弹让倍数翻倍时闪一下，否则数字悄悄变了没人注意 */
+.chip.mult.bump{animation:multBump .5s ease}
+@keyframes multBump{
+  0%{transform:scale(1)}
+  30%{transform:scale(1.32);background:rgba(255,120,60,.5);color:#fff}
+  100%{transform:scale(1)}
+}
+@media (prefers-reduced-motion:reduce){
+  .chip.mult.bump{animation:none}
+}
 
 /* 通用按钮 ---------------------------------------------------------------- */
 button{
@@ -127,6 +141,8 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
 .seat .nm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .seat .ct{font-size:11.5px;color:var(--muted);margin-top:1px}
 .seat .ct b{color:var(--gold);font-size:13px}
+.seat .pt{font-size:11px;color:rgba(255,212,107,.86);margin-top:1px;white-space:nowrap}
+.seat .pt.down{color:#ff9a9a}
 .seat.is-turn{border-color:var(--gold);box-shadow:0 0 0 1px rgba(255,212,107,.45), 0 0 16px rgba(255,212,107,.22)}
 .seat .bubble{
   position:absolute;top:-9px;z-index:3;
@@ -305,6 +321,25 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
 .result-line{font-size:14px;line-height:1.9}
 .result-line b{color:var(--gold)}
 
+/* 结算：倍数明细 + 三家积分变动 */
+.settle{margin:10px 0 2px;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.22);overflow:hidden}
+.settle .calc{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;
+  padding:9px 11px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted);
+}
+.settle .calc .term{color:var(--fg)}
+.settle .calc .term b{color:var(--gold)}
+.settle .calc .eq{margin-left:auto;font-size:14px;color:var(--gold);font-weight:700;white-space:nowrap}
+.settle .who-row{display:flex;align-items:center;gap:8px;padding:7px 11px;font-size:13px}
+.settle .who-row + .who-row{border-top:1px solid rgba(255,255,255,.07)}
+.settle .who-row .rl{font-size:11px;color:var(--muted);padding:1px 6px;border:1px solid var(--line);border-radius:999px}
+.settle .who-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.settle .who-row .dt{font-weight:700;white-space:nowrap}
+.settle .who-row .dt.up{color:#7ff0b0}
+.settle .who-row .dt.down{color:#ff9a9a}
+.settle .who-row .bal{font-size:11.5px;color:var(--muted);white-space:nowrap;min-width:4.5em;text-align:right}
+.settle .who-row.me{background:rgba(255,212,107,.09)}
+
 #toast{
   position:fixed;left:50%;bottom:calc(var(--sab) + 96px);z-index:60;
   transform:translateX(-50%) translateY(8px);
@@ -339,7 +374,8 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
 
   <div class="topbar">
     <h1>单人斗地主</h1>
-    <span class="chip" id="roundChip">第 0 局</span>
+    <span class="chip mult" id="multChip" title="本局倍数">×0</span>
+    <span class="chip coin" id="coinChip" title="你的积分">1000</span>
     <button class="ghost icon" id="menuBtn" aria-label="菜单与设置">☰</button>
     <button class="icon" id="newGameBtn">新局</button>
   </div>
@@ -350,6 +386,7 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
       <div class="who">
         <div class="nm" id="leftName">AI 左</div>
         <div class="ct">剩 <b id="leftCount">17</b> 张</div>
+        <div class="pt" id="leftPoints">1000</div>
       </div>
       <div class="bubble" id="leftBubble">等待</div>
     </div>
@@ -358,6 +395,7 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
       <div class="who">
         <div class="nm" id="rightName">AI 右</div>
         <div class="ct">剩 <b id="rightCount">17</b> 张</div>
+        <div class="pt" id="rightPoints">1000</div>
       </div>
       <div class="bubble" id="rightBubble">等待</div>
     </div>
@@ -414,6 +452,20 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
     <p class="lead" id="statLead">局数 0 · 你胜 0 / 0</p>
 
     <div class="row">
+      <label for="baseScore">底分（赌注）</label>
+      <select id="baseScore">
+        <option value="1">1 分</option>
+        <option value="5">5 分</option>
+        <option value="10" selected>10 分</option>
+        <option value="20">20 分</option>
+        <option value="50">50 分</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>积分</label>
+      <button class="ghost" id="resetPointsBtn">重置为 1000</button>
+    </div>
+    <div class="row">
       <label for="difficulty">AI 难度</label>
       <select id="difficulty">
         <option value="easy">简单</option>
@@ -452,6 +504,9 @@ button.icon{padding:7px 10px;font-size:15px;line-height:1}
         54 张牌，你 + 2 名 AI，每人 17 张，底牌 3 张归地主。<br />
         牌型：单张、对子、三张、三带一/带对、顺子（≥5 张连续）、连对（≥3 对连续）、飞机（连续三张，可带翅膀）、炸弹（4 张同点）、火箭（双王）。<br />
         除炸弹和火箭外，必须同牌型、同张数才能比大小。<br /><br />
+        <b>积分：</b>本局分数 = 底分 × 叫分 × 2<sup>炸弹+火箭数</sup> × 春天倍数。<br />
+        地主赢，地主收两家各一份、共赢两份；农民赢，地主付两家各一份。<br />
+        <b>春天：</b>地主走完而两名农民一张没出，×2；农民走完而地主只出过第一手（反春天），同样 ×2。<br /><br />
         <b>手牌操作：</b>点一下选中/取消；<b>按住横向滑过多张牌可连续多选</b>。<br />
         <b>键盘：</b>Enter 出牌 · 空格 不出 · H 提示 · T 托管。
       </div>
@@ -502,7 +557,9 @@ const CONFIG = {
   aiThinkMs: 800,           // default AI thinking time (ms)
   enablePersistence: true,  // 是否保存牌局到 localStorage
   enableSounds: true,       // 启用声音
-  logLimit: 200
+  logLimit: 200,
+  baseScore: 10,            // 底分（赌注档位），菜单里可改
+  startPoints: 1000         // 每个座位的初始积分
 };
 
 /* =========================
@@ -546,22 +603,40 @@ let state = {
   selectedIds: new Set(),
   hintIds: new Set(),
   logLines: [],
-  autoPlay:false, aiDifficulty:CONFIG.aiDifficulty, aiThinkMs:CONFIG.aiThinkMs
+  autoPlay:false, aiDifficulty:CONFIG.aiDifficulty, aiThinkMs:CONFIG.aiThinkMs,
+
+  /* --- 积分与倍数 ---
+     points 是三个座位的钱包，跨局累计，单独存 localStorage。
+     bidValue / bombCount / playCounts 只属于当前这一局，newDeal 时清掉。
+     playCounts 记每人出了几手，用来判春天（农民一手没出）和反春天（地主只出了第一手）。 */
+  base: CONFIG.baseScore,          // 菜单里选的底分，下一局生效
+  roundBase: CONFIG.baseScore,     // 本局锁定的底分：中途改设置不该改变已开局的赌注
+  points: [CONFIG.startPoints, CONFIG.startPoints, CONFIG.startPoints],
+  bidValue: 0,
+  bombCount: 0,
+  playCounts: [0,0,0],
+  lastSettle: null
 };
+
+/* 本局倍数：叫分 × 2^(炸弹+火箭)。春天要等结算才知道，所以不含在这里。 */
+function currentMultiplier(){
+  return (state.bidValue || 0) * Math.pow(2, state.bombCount);
+}
 
 /* =========================
    Save / Load (localStorage)
    完整快照：手机随时被切后台/杀进程，缺字段会让恢复出来的牌局判断错乱。
    只有 phase==='playing' 的快照才值得恢复；叫分中途退出直接重开一局。
    ========================= */
-const STORAGE_KEY = 'ddz_snapshot_v2';
+const STORAGE_KEY = 'ddz_snapshot_v3';
 const PREFS_KEY = 'ddz_prefs_v1';
+const WALLET_KEY = 'ddz_wallet_v1';
 
 function saveState(){
   if(!CONFIG.enablePersistence) return;
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      v: 2,
+      v: 3,
       players: state.players.map(p=>({id:p.id, hand:p.hand})),
       bottom: state.bottom,
       landlordId: state.landlordId,
@@ -572,6 +647,10 @@ function saveState(){
       phase: state.phase,
       round: state.round,
       stats: state.stats,
+      bidValue: state.bidValue,
+      bombCount: state.bombCount,
+      playCounts: state.playCounts,
+      roundBase: state.roundBase,
       logLines: state.logLines.slice(0, 40)
     }));
   }catch(e){ /* 隐私模式 / 存储写满：忽略，游戏照常进行 */ }
@@ -583,7 +662,7 @@ function loadState(){
     const txt = localStorage.getItem(STORAGE_KEY);
     if(!txt) return false;
     const s = JSON.parse(txt);
-    if(!s || s.v !== 2) return false;
+    if(!s || s.v !== 3) return false;
     /* 统计数据无论如何都恢复，牌局本身只在「出牌阶段」才值得续上 */
     state.round = s.round || 0;
     state.stats = s.stats || state.stats;
@@ -602,9 +681,36 @@ function loadState(){
     state.lastOwner = (typeof s.lastOwner === 'number') ? s.lastOwner : null;
     state.passCount = s.passCount || 0;
     state.phase = 'playing';
+    state.bidValue = s.bidValue || 1;
+    state.bombCount = s.bombCount || 0;
+    state.playCounts = Array.isArray(s.playCounts) && s.playCounts.length===3 ? s.playCounts : [0,0,0];
+    state.roundBase = (typeof s.roundBase === 'number' && s.roundBase > 0) ? s.roundBase : state.base;
     state.logLines = Array.isArray(s.logLines) ? s.logLines : [];
     return true;
   }catch(e){ return false; }
+}
+
+/* 钱包：跨局累计，和牌局快照分开存 —— 中途退出、清掉牌局，积分也该留着 */
+function saveWallet(){
+  try{
+    localStorage.setItem(WALLET_KEY, JSON.stringify({ points: state.points, base: state.base }));
+  }catch(e){}
+}
+function loadWallet(){
+  try{
+    const s = JSON.parse(localStorage.getItem(WALLET_KEY) || 'null');
+    if(!s) return;
+    if(Array.isArray(s.points) && s.points.length === 3 && s.points.every(n=>typeof n === 'number' && isFinite(n))){
+      state.points = s.points;
+    }
+    if(typeof s.base === 'number' && s.base > 0) state.base = CONFIG.baseScore = s.base;
+  }catch(e){}
+}
+function resetWallet(){
+  state.points = [CONFIG.startPoints, CONFIG.startPoints, CONFIG.startPoints];
+  saveWallet();
+  render();
+  showToast(`积分已重置为 ${CONFIG.startPoints}`);
 }
 
 /* 偏好设置（难度/速度/音效）与牌局分开存，重开一局也不会丢 */
@@ -1092,6 +1198,11 @@ function newDeal(){
   state.selectedIds.clear();
   state.hintIds.clear();
   state.phase = 'bidding';
+  state.bidValue = 0;
+  state.bombCount = 0;
+  state.playCounts = [0,0,0];
+  state.lastSettle = null;
+  state.roundBase = state.base;    // 本局的赌注从这一刻锁定
   // deal 17 each
   for(let i=0;i<17;i++){
     for(let pid=0;pid<3;pid++){
@@ -1154,7 +1265,9 @@ async function biddingPhase(gen){
   sortHandDesc(state.landlord.hand);
   state.turn = state.landlordId;
   state.phase = 'playing';
+  state.bidValue = currentMax;   // 叫分即本局的基础倍数
   appendLog(`${state.landlord.name} 以 ${currentMax} 分成为地主，拿到底牌 ${labels(state.bottom)}`);
+  appendLog(`本局底分 ${state.roundBase}，起始倍数 ×${currentMax}。`);
   beep(760, 0.09);
   saveState();
   render();
@@ -1232,12 +1345,26 @@ function doPlay(pid, cards, isAI=false){
   state.lastOwner = pid;
   state.passCount = 0;
   state.turn = (pid + 1) % 3;
+  state.playCounts[pid]++;
   if(pid === 0){ state.selectedIds.clear(); state.hintIds.clear(); }
   appendLog(`${player.name} 出：${labels(cards)}`);
   setBubble(pid, handTypeName(cards));
-  beep(600 + cards.length*20, 0.05);
+
+  /* 炸弹和火箭让本局翻倍。四带二不算——它压不过炸弹，也不该翻倍。 */
+  const played = detectHandType(cards);
+  const isBomb = (played.type === 'bomb' || played.type === 'rocket');
+  if(isBomb){
+    state.bombCount++;
+    appendLog(`${played.type === 'rocket' ? '火箭' : '炸弹'}！倍数翻倍，当前 ×${currentMultiplier()}。`);
+    beep(180, 0.22, 'sawtooth');
+    if(pid !== 0 || state.autoPlay) showToast(`${player.name} 放了${played.type === 'rocket' ? '火箭' : '炸弹'} · 倍数 ×${currentMultiplier()}`);
+  } else {
+    beep(600 + cards.length*20, 0.05);
+  }
+
   saveState();
   render();
+  if(isBomb) bumpMultChip();
   return true;
 }
 
@@ -1301,6 +1428,40 @@ async function playFlow(gen){
   }
 }
 
+/* 结算一局的积分。
+   本局分数 = 底分 × 叫分 × 2^(炸弹+火箭) × 春天倍数
+   地主对每个农民各结算一份，所以地主的进出是农民的两倍。 */
+function settleRound(landlordWins){
+  const lid = state.landlordId;
+  const farmers = [0,1,2].filter(i=>i !== lid);
+
+  /* 春天：地主赢且两名农民一手没出过。
+     反春天：农民赢且地主只出过第一手（他领出之后就再没出过牌）。 */
+  const spring = landlordWins && farmers.every(i=>state.playCounts[i] === 0);
+  const antiSpring = !landlordWins && state.playCounts[lid] === 1;
+  const springMult = (spring || antiSpring) ? 2 : 1;
+
+  const mult = Math.max(1, state.bidValue) * Math.pow(2, state.bombCount) * springMult;
+  const unit = state.roundBase * mult;
+
+  const deltas = [0,0,0];
+  deltas[lid] = landlordWins ? unit * 2 : -unit * 2;
+  for(const f of farmers) deltas[f] = landlordWins ? -unit : unit;
+
+  for(let i=0;i<3;i++) state.points[i] += deltas[i];
+  saveWallet();
+
+  state.lastSettle = {
+    base: state.roundBase,
+    bid: Math.max(1, state.bidValue),
+    bombs: state.bombCount,
+    spring, antiSpring, springMult,
+    mult, unit, deltas,
+    landlordId: lid, landlordWins
+  };
+  return state.lastSettle;
+}
+
 function finishRound(winner){
   const landlordWins = (winner.id === state.landlordId);
   const iAmLandlord = (state.landlordId === 0);
@@ -1311,14 +1472,22 @@ function finishRound(winner){
   if(iWin) state.stats.wins++;
   state.autoPlay = false;
 
+  const settle = settleRound(landlordWins);
+
   appendLog(`本局结束：${winner.name} 出完牌，${landlordWins ? '地主胜' : '农民胜'}。`);
+  if(settle.spring) appendLog('春天！两名农民一张牌都没出，倍数 ×2。');
+  if(settle.antiSpring) appendLog('反春天！地主只出了第一手，倍数 ×2。');
+  appendLog(`结算：${settle.base} × ${settle.bid} × 2^${settle.bombs}${settle.springMult>1?' × 2':''} = 每份 ${settle.unit} 分，你 ${fmtDelta(settle.deltas[0])}，现有 ${state.points[0]} 分。`);
+
   beep(iWin ? 880 : 320, 0.18, iWin ? 'sine' : 'triangle');
   enablePlayerControls(false);
-  setTableHint(iWin ? '你赢了！' : '你输了');
+  setTableHint(iWin ? `你赢了！${fmtDelta(settle.deltas[0])} 分` : `你输了 ${fmtDelta(settle.deltas[0])} 分`);
   saveState();
   render();
-  showResult(iWin, landlordWins, winner);
+  showResult(iWin, landlordWins, winner, settle);
 }
+
+function fmtDelta(n){ return (n > 0 ? '+' : '') + n; }
 
 /* 开一局新的 */
 async function startNewGame(){
@@ -1551,18 +1720,21 @@ function renderHand(){
   layoutHand(perRow);
 }
 
-function renderSeat(pid, seatId, nameId, countId){
+function renderSeat(pid, seatId, nameId, countId, pointsId){
   const seat = el(seatId);
   seat.classList.toggle('is-turn', state.turn === pid && state.phase !== 'over');
   seat.classList.toggle('is-landlord', state.landlordId === pid);
   el(nameId).textContent = state.players[pid].name + (state.landlordId === pid ? ' · 地主' : '');
   el(countId).textContent = state.players[pid].hand.length;
+  const pts = el(pointsId);
+  pts.textContent = `${state.points[pid]} 分`;
+  pts.classList.toggle('down', state.points[pid] < 0);
 }
 
 function render(){
-  el('roundChip').textContent = `第 ${state.round} 局`;
-  renderSeat(1, 'seatLeft', 'leftName', 'leftCount');
-  renderSeat(2, 'seatRight', 'rightName', 'rightCount');
+  renderWallet();
+  renderSeat(1, 'seatLeft', 'leftName', 'leftCount', 'leftPoints');
+  renderSeat(2, 'seatRight', 'rightName', 'rightCount', 'rightPoints');
   el('myName').textContent = '你' + (state.landlordId === 0 ? ' · 地主' : '');
 
   /* 桌面上的牌 */
@@ -1585,8 +1757,33 @@ function render(){
   }
 
   renderHand();
-  el('statLead').textContent = `局数 ${state.round} · 你胜 ${state.stats.wins} / ${state.stats.total}`;
+  el('statLead').textContent =
+    `第 ${state.round} 局 · 你胜 ${state.stats.wins} / ${state.stats.total} · 积分 ${state.points[0]}`;
   el('autoBtn').textContent = state.autoPlay ? '已开启' : '关闭';
+}
+
+/* 顶栏的积分与倍数 */
+function renderWallet(){
+  const coin = el('coinChip');
+  coin.textContent = String(state.points[0]);
+  coin.classList.toggle('down', state.points[0] < 0);
+  coin.title = `你的积分：${state.points[0]}（底分 ${state.base}）`;
+
+  const mult = el('multChip');
+  const m = currentMultiplier();
+  /* 叫分之前没有倍数可言，显示底分让人知道这局赌多大 */
+  mult.textContent = m > 0 ? `×${m}` : `底 ${state.roundBase}`;
+  mult.title = m > 0
+    ? `本局倍数 ×${m}（叫分 ${state.bidValue}${state.bombCount ? ` · 炸弹 ${state.bombCount}` : ''}）· 一份 ${state.roundBase * m} 分`
+    : `底分 ${state.roundBase}`;
+}
+
+/* 炸弹翻倍时让倍数 chip 闪一下 */
+function bumpMultChip(){
+  const chip = el('multChip');
+  chip.classList.remove('bump');
+  void chip.offsetWidth;      // 强制重排，否则连续两个炸弹不会重播动画
+  chip.classList.add('bump');
 }
 
 /* --------------------------------------------------------------------------
@@ -1691,11 +1888,38 @@ function closeAllOverlays(){
     el(id).classList.remove('show');
   }
 }
-function showResult(iWin, landlordWins, winner){
-  el('resultTitle').textContent = iWin ? '🎉 你赢了' : '这局输了';
+function showResult(iWin, landlordWins, winner, settle){
+  const mine = settle.deltas[0];
+  el('resultTitle').textContent = iWin
+    ? `🎉 你赢了 ${fmtDelta(mine)} 分`
+    : `这局输了 ${fmtDelta(mine)} 分`;
+
+  /* 倍数怎么算出来的，摊开给人看——不然赢输多少全靠猜 */
+  const terms = [
+    `<span class="term">底分 <b>${settle.base}</b></span>`,
+    `<span class="term">叫分 <b>${settle.bid}</b></span>`
+  ];
+  if(settle.bombs > 0) terms.push(`<span class="term">${settle.bombs} 炸 <b>${Math.pow(2, settle.bombs)}</b></span>`);
+  if(settle.springMult > 1) terms.push(`<span class="term">${settle.spring ? '春天' : '反春天'} <b>2</b></span>`);
+
+  const rows = [0,1,2].map(pid=>{
+    const d = settle.deltas[pid];
+    const isLandlord = (pid === settle.landlordId);
+    return `<div class="who-row${pid===0?' me':''}">
+      <span class="rl">${isLandlord ? '地主' : '农民'}</span>
+      <span class="nm">${state.players[pid].name}</span>
+      <span class="dt ${d >= 0 ? 'up' : 'down'}">${fmtDelta(d)}</span>
+      <span class="bal">${state.points[pid]} 分</span>
+    </div>`;
+  }).join('');
+
   el('resultBody').innerHTML =
     `<div>${winner.name} 先出完牌，<b>${landlordWins ? '地主胜' : '农民胜'}</b>。</div>` +
     `<div>你这局的身份：<b>${state.landlordId === 0 ? '地主' : '农民'}</b></div>` +
+    `<div class="settle">
+       <div class="calc">${terms.join('<span>×</span>')}<span class="eq">每份 ${settle.unit} 分</span></div>
+       ${rows}
+     </div>` +
     `<div>累计：<b>${state.stats.wins} 胜 / ${state.stats.total} 局</b></div>`;
   el('resultOverlay').classList.add('show');
 }
@@ -1770,6 +1994,15 @@ function bindEvents(){
     savePrefs();
   });
 
+  /* 底分改了立刻生效；本局已经在打就等下一局，避免中途改赌注 */
+  el('baseScore').addEventListener('change', (e)=>{
+    state.base = CONFIG.baseScore = Number(e.target.value);
+    saveWallet();
+    render();
+    showToast(state.phase === 'playing' ? `底分 ${state.base}，下一局生效` : `底分改为 ${state.base}`);
+  });
+  el('resetPointsBtn').addEventListener('click', resetWallet);
+
   window.addEventListener('keydown', (e)=>{
     if(e.target.tagName === 'SELECT') return;
     if(e.code === 'Enter'){ onHumanPlay(); e.preventDefault(); }
@@ -1795,9 +2028,18 @@ function bindEvents(){
    ========================= */
 (function init(){
   loadPrefs();
+  /* 钱包要在 loadState 之前读：恢复牌局时会拿 state.base 兜底 roundBase */
+  loadWallet();
+  state.roundBase = state.base;
   el('difficulty').value = state.aiDifficulty;
   el('aiSpeed').value = String(state.aiThinkMs);
   el('soundToggle').value = CONFIG.enableSounds ? 'on' : 'off';
+  el('baseScore').value = String(state.base);
+  /* 存档里的底分如果不在选项里，select 会变成空白，回落到默认值 */
+  if(!el('baseScore').value){
+    state.base = CONFIG.baseScore = state.roundBase = 10;
+    el('baseScore').value = '10';
+  }
 
   bindEvents();
   bindHandGestures();
